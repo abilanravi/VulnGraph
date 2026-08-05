@@ -1,14 +1,27 @@
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.routes.repositories import _get_owned_repository
-from app.db.models import Finding, User, Vulnerability
-from app.schemas.finding import FindingCreate, FindingRead
+from app.db.models import Finding, FindingStatus, FindingType, Scanner, User, Vulnerability
+from app.schemas.finding import FindingCreate, FindingRead, FindingStatusUpdate
+from app.services.fingerprint import compute_fingerprint
 
 router = APIRouter(prefix="/repositories/{repository_id}/findings", tags=["findings"])
+
+
+def _get_repository_finding(repository_id: uuid.UUID, finding_id: uuid.UUID, db: Session) -> Finding:
+    finding = (
+        db.query(Finding)
+        .filter(Finding.id == finding_id, Finding.repository_id == repository_id)
+        .first()
+    )
+    if finding is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
+    return finding
 
 
 @router.get("", response_model=list[FindingRead])
@@ -31,6 +44,7 @@ def create_finding(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Finding:
+    """Manual finding entry. Scanner-generated findings are created via the scan pipeline instead."""
     repository = _get_owned_repository(repository_id, current_user, db)
 
     vulnerability = db.query(Vulnerability).filter(Vulnerability.cve == payload.cve).first()
@@ -41,18 +55,51 @@ def create_finding(
         db.add(vulnerability)
         db.flush()
 
+    fingerprint = compute_fingerprint(repository.id, Scanner.MANUAL, cve=payload.cve)
+
     finding = (
         db.query(Finding)
-        .filter(Finding.repository_id == repository.id, Finding.vulnerability_id == vulnerability.id)
+        .filter(Finding.repository_id == repository.id, Finding.fingerprint == fingerprint)
         .first()
     )
     if finding is None:
         finding = Finding(
-            repository_id=repository.id, vulnerability_id=vulnerability.id, status=payload.status
+            repository_id=repository.id,
+            vulnerability_id=vulnerability.id,
+            scanner=Scanner.MANUAL,
+            finding_type=FindingType.MANUAL,
+            severity=payload.severity,
+            title=payload.cve,
+            description=payload.description,
+            cve=payload.cve,
+            fingerprint=fingerprint,
+            status=payload.status,
         )
         db.add(finding)
     else:
+        finding.vulnerability_id = vulnerability.id
+        finding.severity = payload.severity
+        finding.description = payload.description
         finding.status = payload.status
+
+    db.commit()
+    db.refresh(finding)
+    return finding
+
+
+@router.patch("/{finding_id}", response_model=FindingRead)
+def update_finding_status(
+    repository_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    payload: FindingStatusUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Finding:
+    repository = _get_owned_repository(repository_id, current_user, db)
+    finding = _get_repository_finding(repository.id, finding_id, db)
+
+    finding.status = payload.status
+    finding.resolved_at = datetime.now(timezone.utc) if payload.status == FindingStatus.RESOLVED else None
 
     db.commit()
     db.refresh(finding)

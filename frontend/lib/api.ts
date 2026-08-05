@@ -4,7 +4,10 @@ import { getToken } from "./session";
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type FindingStatus = "OPEN" | "RESOLVED" | "IGNORED";
+export type FindingStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "FALSE_POSITIVE";
+export type Scanner = "MANUAL" | "SEMGREP" | "OSV";
+export type FindingType = "MANUAL" | "SAST" | "SCA";
+export type ScanStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
 
 export interface Repository {
   id: string;
@@ -14,19 +17,48 @@ export interface Repository {
   created_at: string;
 }
 
-export interface Vulnerability {
+export interface Finding {
   id: string;
-  cve: string;
+  repository_id: string;
+  scan_id: string | null;
+  scanner: Scanner;
+  finding_type: FindingType;
   severity: Severity;
-  description: string;
+  title: string;
+  description: string | null;
+  file_path: string | null;
+  line_start: number | null;
+  package_name: string | null;
+  package_version: string | null;
+  cve: string | null;
+  status: FindingStatus;
+  detected_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+}
+
+export interface Scan {
+  id: string;
+  repository_id: string;
+  scanner: Scanner;
+  status: ScanStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  total_findings: number | null;
+  new_findings: number | null;
+  resolved_findings: number | null;
   created_at: string;
 }
 
-export interface Finding {
-  id: string;
-  status: FindingStatus;
-  detected_at: string;
-  vulnerability: Vulnerability;
+export interface DashboardSummary {
+  total_repositories: number;
+  total_open_findings: number;
+  critical_findings: number;
+  high_findings: number;
+  medium_findings: number;
+  low_findings: number;
+  recent_findings: Finding[];
 }
 
 export class ApiError extends Error {
@@ -97,4 +129,41 @@ export function createFinding(
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export function updateFindingStatus(
+  repositoryId: string,
+  findingId: string,
+  status: FindingStatus,
+): Promise<Finding> {
+  return authRequest(`/repositories/${repositoryId}/findings/${findingId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+// -- Scans --
+
+export function getScans(repositoryId: string): Promise<Scan[]> {
+  return authRequest(`/repositories/${repositoryId}/scans`);
+}
+
+export function triggerSemgrepScan(repositoryId: string, path: string): Promise<Scan> {
+  return authRequest(`/repositories/${repositoryId}/scans/semgrep`, {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
+export function triggerOsvScan(repositoryId: string, path: string): Promise<Scan> {
+  return authRequest(`/repositories/${repositoryId}/scans/osv`, {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
+// -- Dashboard --
+
+export function getDashboardSummary(): Promise<DashboardSummary> {
+  return authRequest("/dashboard/summary");
 }

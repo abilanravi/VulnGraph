@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { ApiError, createFinding, type Severity } from "@/lib/api";
+import { ApiError, createFinding, updateFindingStatus, type FindingStatus, type Severity } from "@/lib/api";
 
 export type AddFindingState = { error?: string } | undefined;
 
@@ -33,4 +33,13 @@ export async function addFindingAction(
 
   revalidatePath(`/dashboard/repositories/${repositoryId}`);
   redirect(`/dashboard/repositories/${repositoryId}`);
+}
+
+export async function updateFindingStatusAction(
+  repositoryId: string,
+  findingId: string,
+  status: FindingStatus,
+): Promise<void> {
+  await updateFindingStatus(repositoryId, findingId, status);
+  revalidatePath(`/dashboard/repositories/${repositoryId}`);
 }

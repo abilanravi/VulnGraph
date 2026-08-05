@@ -2,7 +2,17 @@
 
 from app.core.security import hash_password
 from app.db.base import Base, SessionLocal, engine
-from app.db.models import Finding, FindingStatus, Repository, Severity, User, Vulnerability
+from app.db.models import (
+    Finding,
+    FindingStatus,
+    FindingType,
+    Repository,
+    Scanner,
+    Severity,
+    User,
+    Vulnerability,
+)
+from app.services.fingerprint import compute_fingerprint
 
 DEMO_EMAIL = "demo@vulngraph.dev"
 DEMO_PASSWORD = "password123"
@@ -69,13 +79,57 @@ def seed() -> None:
         for repo_name, cve, status in finding_specs:
             repo = repos[repo_name]
             vuln = vulns[cve]
+            fingerprint = compute_fingerprint(repo.id, Scanner.MANUAL, cve=cve)
             finding = (
                 db.query(Finding)
-                .filter(Finding.repository_id == repo.id, Finding.vulnerability_id == vuln.id)
+                .filter(Finding.repository_id == repo.id, Finding.fingerprint == fingerprint)
                 .first()
             )
             if finding is None:
-                db.add(Finding(repository_id=repo.id, vulnerability_id=vuln.id, status=status))
+                db.add(
+                    Finding(
+                        repository_id=repo.id,
+                        vulnerability_id=vuln.id,
+                        scanner=Scanner.MANUAL,
+                        finding_type=FindingType.MANUAL,
+                        severity=vuln.severity,
+                        title=cve,
+                        description=vuln.description,
+                        cve=cve,
+                        fingerprint=fingerprint,
+                        status=status,
+                    )
+                )
+
+        # A sample Semgrep (SAST) finding, illustrating the scanner-origin shape.
+        semgrep_fingerprint = compute_fingerprint(
+            repos["webapp"].id,
+            Scanner.SEMGREP,
+            rule_id="python.flask.security.audit.debug-enabled",
+            file_path="app/main.py",
+            line_start=12,
+        )
+        if (
+            db.query(Finding)
+            .filter(Finding.repository_id == repos["webapp"].id, Finding.fingerprint == semgrep_fingerprint)
+            .first()
+            is None
+        ):
+            db.add(
+                Finding(
+                    repository_id=repos["webapp"].id,
+                    scanner=Scanner.SEMGREP,
+                    finding_type=FindingType.SAST,
+                    severity=Severity.MEDIUM,
+                    title="python.flask.security.audit.debug-enabled",
+                    description="Flask app run with debug=True, which can leak a Werkzeug debugger RCE.",
+                    file_path="app/main.py",
+                    line_start=12,
+                    rule_id="python.flask.security.audit.debug-enabled",
+                    fingerprint=semgrep_fingerprint,
+                    status=FindingStatus.OPEN,
+                )
+            )
 
         db.commit()
         print(f"Seed complete. Demo login: {DEMO_EMAIL} / {DEMO_PASSWORD}")

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, findings, repositories
+from app.api.routes import auth, dashboard, findings, repositories, scans
 
 app = FastAPI(title="VulnGraph API")
 
@@ -16,6 +16,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(repositories.router, prefix="/api")
 app.include_router(findings.router, prefix="/api")
+app.include_router(scans.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 
 
 @app.get("/health")
