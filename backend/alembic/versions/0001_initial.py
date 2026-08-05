@@ -21,9 +21,10 @@ finding_status_enum = postgresql.ENUM("OPEN", "RESOLVED", "IGNORED", name="findi
 
 
 def upgrade() -> None:
-    severity_enum.create(op.get_bind(), checkfirst=True)
-    finding_status_enum.create(op.get_bind(), checkfirst=True)
-
+    # Enum types are created automatically the first (and only) time each is
+    # referenced below, by `vulnerabilities.severity` and `findings.status`
+    # respectively — do not call `.create()` here or Postgres raises
+    # "type already exists".
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),

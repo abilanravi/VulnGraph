@@ -1,6 +1,6 @@
+import "server-only";
 import { cookies } from "next/headers";
-
-export const SESSION_COOKIE = "vulngraph_token";
+import { SESSION_COOKIE } from "@/lib/constants";
 
 export async function getToken(): Promise<string | undefined> {
   const store = await cookies();
