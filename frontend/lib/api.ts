@@ -8,12 +8,35 @@ export type FindingStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "FALSE_POSITIV
 export type Scanner = "MANUAL" | "SEMGREP" | "OSV";
 export type FindingType = "MANUAL" | "SAST" | "SCA";
 export type ScanStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+export type RepositorySource = "MANUAL" | "GITHUB";
+export type UserRole = "ADMIN" | "DEVELOPER" | "VIEWER";
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  user_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  ip_address: string | null;
+  event_metadata: Record<string, unknown> | null;
+  created_at: string;
+}
 
 export interface Repository {
   id: string;
   name: string;
   owner: string;
   url: string | null;
+  source: RepositorySource;
+  default_branch: string | null;
   created_at: string;
 }
 
@@ -101,6 +124,31 @@ export function signup(email: string, password: string): Promise<{ access_token:
   return request("/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) });
 }
 
+export function getCurrentUser(): Promise<CurrentUser> {
+  return authRequest("/auth/me");
+}
+
+// -- User management (ADMIN only; enforced server-side, see app/api/routes/users.py) --
+
+export function getUsers(): Promise<CurrentUser[]> {
+  return authRequest("/users");
+}
+
+export function updateUserRole(userId: string, role: UserRole): Promise<CurrentUser> {
+  return authRequest(`/users/${userId}/role`, { method: "PATCH", body: JSON.stringify({ role }) });
+}
+
+export function updateUserActive(userId: string, isActive: boolean): Promise<CurrentUser> {
+  return authRequest(`/users/${userId}/active`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active: isActive }),
+  });
+}
+
+export function getAuditLogs(): Promise<AuditLogEntry[]> {
+  return authRequest("/audit-logs");
+}
+
 // -- Repositories --
 
 export function getRepositories(): Promise<Repository[]> {
@@ -111,7 +159,9 @@ export function getRepository(id: string): Promise<Repository> {
   return authRequest(`/repositories/${id}`);
 }
 
-export function createRepository(data: { name: string; owner: string; url?: string }): Promise<Repository> {
+export function createRepository(
+  data: { url: string } | { name: string; owner: string },
+): Promise<Repository> {
   return authRequest("/repositories", { method: "POST", body: JSON.stringify(data) });
 }
 
@@ -148,17 +198,25 @@ export function getScans(repositoryId: string): Promise<Scan[]> {
   return authRequest(`/repositories/${repositoryId}/scans`);
 }
 
-export function triggerSemgrepScan(repositoryId: string, path: string): Promise<Scan> {
+export function triggerSemgrepScan(repositoryId: string, path?: string): Promise<Scan> {
   return authRequest(`/repositories/${repositoryId}/scans/semgrep`, {
     method: "POST",
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path: path || undefined }),
   });
 }
 
-export function triggerOsvScan(repositoryId: string, path: string): Promise<Scan> {
+export function triggerOsvScan(repositoryId: string, path?: string): Promise<Scan> {
   return authRequest(`/repositories/${repositoryId}/scans/osv`, {
     method: "POST",
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path: path || undefined }),
+  });
+}
+
+/** Runs Semgrep and OSV Scanner in one pass (one GitHub clone shared by both, if applicable). */
+export function runFullScan(repositoryId: string, path?: string): Promise<Scan[]> {
+  return authRequest(`/repositories/${repositoryId}/scans/run`, {
+    method: "POST",
+    body: JSON.stringify({ path: path || undefined }),
   });
 }
 

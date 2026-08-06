@@ -1,6 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ApiError, getFindings, getRepository, getScans, type Finding, type FindingStatus, type Severity } from "@/lib/api";
+import {
+  ApiError,
+  getCurrentUser,
+  getFindings,
+  getRepository,
+  getScans,
+  type Finding,
+  type FindingStatus,
+  type Severity,
+} from "@/lib/api";
 import { updateFindingStatusAction } from "@/lib/actions/findings";
 import { ScanTriggerForm } from "./scan-trigger-form";
 
@@ -38,14 +47,22 @@ export default async function RepositoryDetailPage({
 }) {
   const { id } = await params;
 
-  let repository, findings, scans;
+  let repository, findings, scans, currentUser;
   try {
-    [repository, findings, scans] = await Promise.all([getRepository(id), getFindings(id), getScans(id)]);
+    [repository, findings, scans, currentUser] = await Promise.all([
+      getRepository(id),
+      getFindings(id),
+      getScans(id),
+      getCurrentUser(),
+    ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) redirect("/login");
     if (err instanceof ApiError && err.status === 404) redirect("/dashboard");
     throw err;
   }
+  // VIEWER accounts are read-only; the backend is the real gate (see require_scan_access in
+  // app/api/routes/scans.py and app/api/routes/findings.py) — this only controls what's shown.
+  const canWrite = currentUser.role !== "VIEWER";
 
   return (
     <div className="flex flex-col gap-6">
@@ -57,29 +74,28 @@ export default async function RepositoryDetailPage({
           <h1 className="text-xl font-semibold">
             {repository.owner}/{repository.name}
           </h1>
-          <Link
-            href={`/dashboard/repositories/${repository.id}/add-finding`}
-            className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background"
-          >
-            Add finding
-          </Link>
+          {canWrite && (
+            <Link
+              href={`/dashboard/repositories/${repository.id}/add-finding`}
+              className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background"
+            >
+              Add finding
+            </Link>
+          )}
         </div>
-        {repository.url && (
-          <a
-            href={repository.url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sm opacity-60 hover:underline"
-          >
-            {repository.url}
-          </a>
-        )}
+        <div className="flex items-center gap-2 text-sm opacity-60">
+          {repository.url && (
+            <a href={repository.url} target="_blank" rel="noreferrer" className="hover:underline">
+              {repository.url}
+            </a>
+          )}
+          <span className="rounded-full bg-current/10 px-2 py-0.5 text-xs">
+            {repository.source === "GITHUB" ? "GitHub import" : "Manual"}
+          </span>
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ScanTriggerForm repositoryId={repository.id} scanner="semgrep" />
-        <ScanTriggerForm repositoryId={repository.id} scanner="osv" />
-      </div>
+      {canWrite && <ScanTriggerForm repositoryId={repository.id} source={repository.source} />}
 
       {scans.length > 0 && (
         <div>
@@ -128,18 +144,20 @@ export default async function RepositoryDetailPage({
                   Status: {finding.status} · Detected {new Date(finding.detected_at).toLocaleDateString()} · Last
                   seen {new Date(finding.last_seen_at).toLocaleDateString()}
                 </p>
-                <div className="flex gap-2">
-                  {STATUS_TRANSITIONS[finding.status].map((transition) => (
-                    <form
-                      key={transition.next}
-                      action={updateFindingStatusAction.bind(null, repository.id, finding.id, transition.next)}
-                    >
-                      <button type="submit" className="text-xs underline opacity-70 hover:opacity-100">
-                        {transition.label}
-                      </button>
-                    </form>
-                  ))}
-                </div>
+                {canWrite && (
+                  <div className="flex gap-2">
+                    {STATUS_TRANSITIONS[finding.status].map((transition) => (
+                      <form
+                        key={transition.next}
+                        action={updateFindingStatusAction.bind(null, repository.id, finding.id, transition.next)}
+                      >
+                        <button type="submit" className="text-xs underline opacity-70 hover:opacity-100">
+                          {transition.label}
+                        </button>
+                      </form>
+                    ))}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

@@ -7,13 +7,13 @@ from app.db.models import ScanStatus, Scanner
 
 
 class ScanTrigger(BaseModel):
-    """Local filesystem path (on the backend host) to scan.
+    """Optional local filesystem path (on the backend host) to scan.
 
-    GitHub/remote repository import is out of scope for this milestone — the caller
-    supplies a path the backend process can read directly.
+    If omitted, the repository must be a GitHub import (`source=GITHUB`) — VulnGraph shallow-
+    clones it to a temporary directory, scans that, and deletes it afterward.
     """
 
-    path: str = Field(min_length=1)
+    path: str | None = Field(default=None, min_length=1)
 
 
 class ScanRead(BaseModel):

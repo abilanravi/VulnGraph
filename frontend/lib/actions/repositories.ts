@@ -10,17 +10,17 @@ export async function addRepositoryAction(
   _prevState: AddRepositoryState,
   formData: FormData,
 ): Promise<AddRepositoryState> {
+  const url = String(formData.get("url") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const owner = String(formData.get("owner") ?? "").trim();
-  const url = String(formData.get("url") ?? "").trim();
 
-  if (!name || !owner) {
-    return { error: "Name and owner are required." };
+  if (!url && (!name || !owner)) {
+    return { error: "Provide a GitHub URL, or a name and owner." };
   }
 
   let repository;
   try {
-    repository = await createRepository({ name, owner, url: url || undefined });
+    repository = url ? await createRepository({ url }) : await createRepository({ name, owner });
   } catch (err) {
     if (err instanceof ApiError) return { error: err.message };
     return { error: "Something went wrong. Please try again." };

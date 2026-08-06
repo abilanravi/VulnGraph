@@ -7,9 +7,11 @@ from app.db.models import (
     FindingStatus,
     FindingType,
     Repository,
+    RepositorySource,
     Scanner,
     Severity,
     User,
+    UserRole,
     Vulnerability,
 )
 from app.services.fingerprint import compute_fingerprint
@@ -24,13 +26,31 @@ def seed() -> None:
     try:
         user = db.query(User).filter(User.email == DEMO_EMAIL).first()
         if user is None:
-            user = User(email=DEMO_EMAIL, hashed_password=hash_password(DEMO_PASSWORD))
+            # ADMIN so the seeded account can exercise user management / audit log views too.
+            user = User(email=DEMO_EMAIL, hashed_password=hash_password(DEMO_PASSWORD), role=UserRole.ADMIN)
             db.add(user)
             db.flush()
 
         repo_specs = [
-            {"name": "webapp", "owner": "acme-corp", "url": "https://github.com/acme-corp/webapp"},
-            {"name": "payments-service", "owner": "acme-corp", "url": "https://github.com/acme-corp/payments-service"},
+            {
+                "name": "webapp",
+                "owner": "acme-corp",
+                "url": "https://github.com/acme-corp/webapp",
+                "source": RepositorySource.GITHUB,
+            },
+            {
+                "name": "payments-service",
+                "owner": "acme-corp",
+                "url": "https://github.com/acme-corp/payments-service",
+                "source": RepositorySource.GITHUB,
+            },
+            {
+                "name": "Hello-World",
+                "owner": "octocat",
+                "url": "https://github.com/octocat/Hello-World",
+                "source": RepositorySource.GITHUB,
+                "default_branch": "master",
+            },
         ]
         repos = {}
         for spec in repo_specs:

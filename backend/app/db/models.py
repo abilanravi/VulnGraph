@@ -49,15 +49,47 @@ class ScanStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class RepositorySource(str, enum.Enum):
+    MANUAL = "MANUAL"
+    GITHUB = "GITHUB"
+
+
+class UserRole(str, enum.Enum):
+    ADMIN = "ADMIN"
+    DEVELOPER = "DEVELOPER"
+    VIEWER = "VIEWER"
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="user_role"), default=UserRole.DEVELOPER, nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     repositories: Mapped[list["Repository"]] = relationship(back_populates="user")
+
+
+class AuditLog(Base):
+    """Lightweight, append-only record of security-sensitive actions for accountability.
+
+    Never store secrets here (passwords, JWTs, cookies, GitHub tokens) — only identifiers and
+    non-sensitive metadata about what happened.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
 
 
 class Repository(Base):
@@ -68,6 +100,10 @@ class Repository(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source: Mapped[RepositorySource] = mapped_column(
+        Enum(RepositorySource, name="repository_source"), default=RepositorySource.MANUAL, nullable=False
+    )
+    default_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     # named `user` (not `owner`) to avoid clashing with the `owner` text column (GitHub org/user)

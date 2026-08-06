@@ -1,13 +1,15 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_active_user, get_db
 from app.api.routes.repositories import _get_owned_repository
+from app.core.permissions import require_scan_access
 from app.db.models import Finding, FindingStatus, FindingType, Scanner, User, Vulnerability
 from app.schemas.finding import FindingCreate, FindingRead, FindingStatusUpdate
+from app.services.audit import record_audit_event
 from app.services.fingerprint import compute_fingerprint
 
 router = APIRouter(prefix="/repositories/{repository_id}/findings", tags=["findings"])
@@ -26,7 +28,7 @@ def _get_repository_finding(repository_id: uuid.UUID, finding_id: uuid.UUID, db:
 
 @router.get("", response_model=list[FindingRead])
 def list_findings(
-    repository_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    repository_id: uuid.UUID, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ) -> list[Finding]:
     repository = _get_owned_repository(repository_id, current_user, db)
     return (
@@ -41,7 +43,7 @@ def list_findings(
 def create_finding(
     repository_id: uuid.UUID,
     payload: FindingCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_scan_access),
     db: Session = Depends(get_db),
 ) -> Finding:
     """Manual finding entry. Scanner-generated findings are created via the scan pipeline instead."""
@@ -92,15 +94,27 @@ def update_finding_status(
     repository_id: uuid.UUID,
     finding_id: uuid.UUID,
     payload: FindingStatusUpdate,
-    current_user: User = Depends(get_current_user),
+    request: Request,
+    current_user: User = Depends(require_scan_access),
     db: Session = Depends(get_db),
 ) -> Finding:
     repository = _get_owned_repository(repository_id, current_user, db)
     finding = _get_repository_finding(repository.id, finding_id, db)
 
+    previous_status = finding.status
     finding.status = payload.status
     finding.resolved_at = datetime.now(timezone.utc) if payload.status == FindingStatus.RESOLVED else None
 
     db.commit()
     db.refresh(finding)
+
+    record_audit_event(
+        db,
+        user_id=current_user.id,
+        action="finding_status_changed",
+        resource_type="finding",
+        resource_id=str(finding.id),
+        metadata={"from": previous_status.value, "to": finding.status.value, "repository_id": str(repository.id)},
+        request=request,
+    )
     return finding

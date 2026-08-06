@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ApiError, getDashboardSummary, getRepositories, type Severity } from "@/lib/api";
+import { ApiError, getCurrentUser, getDashboardSummary, getRepositories, type Severity } from "@/lib/api";
 
 const SEVERITY_STYLES: Record<Severity, string> = {
   LOW: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
@@ -10,13 +10,20 @@ const SEVERITY_STYLES: Record<Severity, string> = {
 };
 
 export default async function DashboardPage() {
-  let summary, repositories;
+  let summary, repositories, currentUser;
   try {
-    [summary, repositories] = await Promise.all([getDashboardSummary(), getRepositories()]);
+    [summary, repositories, currentUser] = await Promise.all([
+      getDashboardSummary(),
+      getRepositories(),
+      getCurrentUser(),
+    ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) redirect("/login");
     throw err;
   }
+  // VIEWER accounts are read-only; hiding this is UX only — the backend rejects the POST
+  // regardless of whether the button is shown (see app/api/routes/repositories.py).
+  const canCreateRepository = currentUser.role !== "VIEWER";
 
   const tiles = [
     { label: "Repositories", value: summary.total_repositories },
@@ -41,12 +48,14 @@ export default async function DashboardPage() {
       <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">Repositories</h1>
-          <Link
-            href="/dashboard/add-repository"
-            className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background"
-          >
-            Add repository
-          </Link>
+          {canCreateRepository && (
+            <Link
+              href="/dashboard/add-repository"
+              className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background"
+            >
+              Add repository
+            </Link>
+          )}
         </div>
 
         {repositories.length === 0 ? (

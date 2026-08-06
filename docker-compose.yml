@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vulngraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vulngraph}
+      POSTGRES_DB: ${POSTGRES_DB:-vulngraph}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vulngraph}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-vulngraph}:${POSTGRES_PASSWORD:-vulngraph}@postgres:5432/${POSTGRES_DB:-vulngraph}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env — see .env.example}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-60}
+      SEED_DB: ${SEED_DB:-false}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SCAN_ROOT_DIR: ${SCAN_ROOT_DIR:-}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Server-side only (frontend/lib/api.ts is a "server-only" module) — resolves inside
+      # the Docker network, not from the browser.
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:

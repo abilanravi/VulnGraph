@@ -1,41 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ApiError, triggerOsvScan, triggerSemgrepScan } from "@/lib/api";
+import { ApiError, runFullScan } from "@/lib/api";
 
 export type TriggerScanState = { error?: string; success?: string } | undefined;
 
-async function runScan(
+export async function runFullScanAction(
   repositoryId: string,
-  run: (repositoryId: string, path: string) => Promise<unknown>,
+  requiresPath: boolean,
+  _prevState: TriggerScanState,
   formData: FormData,
 ): Promise<TriggerScanState> {
   const path = String(formData.get("path") ?? "").trim();
-  if (!path) return { error: "Path is required." };
+  if (requiresPath && !path) return { error: "Path is required for repositories without a GitHub URL." };
 
+  let scans;
   try {
-    await run(repositoryId, path);
+    scans = await runFullScan(repositoryId, path || undefined);
   } catch (err) {
     if (err instanceof ApiError) return { error: err.message };
     return { error: "Something went wrong. Please try again." };
   }
 
   revalidatePath(`/dashboard/repositories/${repositoryId}`);
-  return { success: "Scan complete." };
-}
-
-export async function triggerSemgrepScanAction(
-  repositoryId: string,
-  _prevState: TriggerScanState,
-  formData: FormData,
-): Promise<TriggerScanState> {
-  return runScan(repositoryId, triggerSemgrepScan, formData);
-}
-
-export async function triggerOsvScanAction(
-  repositoryId: string,
-  _prevState: TriggerScanState,
-  formData: FormData,
-): Promise<TriggerScanState> {
-  return runScan(repositoryId, triggerOsvScan, formData);
+  const failed = scans.filter((scan) => scan.status === "FAILED");
+  if (failed.length > 0) {
+    return { error: failed.map((scan) => `${scan.scanner}: ${scan.error_message}`).join(" · ") };
+  }
+  const newTotal = scans.reduce((sum, scan) => sum + (scan.new_findings ?? 0), 0);
+  const resolvedTotal = scans.reduce((sum, scan) => sum + (scan.resolved_findings ?? 0), 0);
+  return { success: `Scan complete: ${newTotal} new, ${resolvedTotal} resolved.` };
 }

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_active_user, get_db
 from app.db.models import Finding, FindingStatus, Repository, Severity, User
 from app.schemas.dashboard import DashboardSummary
 
@@ -13,7 +13,7 @@ _OPEN_STATUSES = (FindingStatus.OPEN, FindingStatus.IN_PROGRESS)
 
 @router.get("/summary", response_model=DashboardSummary)
 def get_dashboard_summary(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)
 ) -> DashboardSummary:
     owned_findings = db.query(Finding).join(Repository).filter(Repository.owner_id == current_user.id)
 
